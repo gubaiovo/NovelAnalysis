@@ -1,75 +1,201 @@
 #include "cppjieba/Jieba.hpp"
 #include <regex> 
-// #include "cppjieba/PosTagger.hpp" 
-// #include "limonp/Logging.hpp"
-// #include <iostream>
-// #include <fstream>
-// #include <vector>
-// #include <map>
-// #include <set>
-// #include <algorithm>
-// #include <cmath>
-// #include <unordered_set>
-// #include <unordered_map>
+#include <fstream>
+#include <sstream>
+#include <iostream>
+#include <unordered_map>
+#include <vector>
+#include <set>
+#include <map>
+#include <algorithm>
+#include <unordered_set>
+#include <filesystem>
 
-// 情感分析关键词
-const std::set<std::string> POSITIVE_WORDS = {"幸福", "快乐", "成功", "胜利", "希望", "爱", "和平", "光明", "团圆", "喜悦", "赞美", "美好", "积极", "鼓励", "进步"};
-const std::set<std::string> NEGATIVE_WORDS = {"死亡", "悲伤", "失败", "痛苦", "仇恨", "战争", "黑暗", "绝望", "背叛", "恐惧", "不幸", "消极", "抱怨", "退缩", "困难"};
-
-// 故事类型关键词
-const std::map<std::string, std::set<std::string>> GENRE_KEYWORDS = {
-    {"爱情", {"爱", "恋人", "结婚", "感情", "亲吻", "浪漫", "心动", "约会", "相遇", "分手", "思念", "情人"}},
-    {"奇幻", {"魔法", "龙", "精灵", "巫师", "咒语", "城堡", "幻想", "异世界", "神", "妖", "仙", "魔", "传说", "神器"}},
-    {"悬疑", {"谋杀", "侦探", "线索", "秘密", "真相", "凶手", "犯罪", "解谜", "疑团", "调查", "案件", "推理", "陷阱"}},
-    {"科幻", {"宇宙", "飞船", "激光", "未来", "机器人", "人工智能", "外星人", "科技", "星际", "基因", "虚拟", "改造", "超能力"}},
-    {"历史", {"皇帝", "将军", "战争", "朝代", "古装", "历史", "宫廷", "文物", "王朝", "民族", "叛乱", "征战", "英雄"}}
+struct AppConfig {
+    // 字典
+    std::string jiebaDictPath = "./dict/jieba/jieba.dict.utf8"; 
+    std::string hmmModelPath = "./dict/jieba/hmm_model.utf8";
+    std::string userDictPath = "./dict/jieba/user.dict.utf8";
+    std::string idfPath = "./dict/jieba/idf.utf8";
+    std::string stopWordsPath = "./dict/jieba/stop_words.utf8";
+    std::string nameFilterPath = "./dict/name_filter.utf8";
+    
+    // 关键词
+    std::string positiveWordsPath = "./dict/positive_words.utf8";
+    std::string negativeWordsPath = "./dict/negative_words.utf8";
+    std::string goodEndingWordsPath = "./dict/good_ending_words.utf8";
+    std::string badEndingWordsPath = "./dict/bad_ending_words.utf8";
+    std::string surnamesPath = "./dict/surnames.utf8";
+    std::string verbTagsPath = "./dict/verb_tags.utf8";
+    std::string genreKeywordsDir = "./dict/genre_keywords/";
+    
+    // 分析参数
+    struct AnalysisConfig {
+        int minNameLength = 2;
+        int maxNameLength = 4;
+        int minNameScore = 15;
+        int minNameOccurrence = 3;
+        double endingRatio = 2.0;
+        int minEndingCount = 5;
+    } analysisConfig;
 };
 
-// 结局预测关键词
-const std::set<std::string> GOOD_ENDING_WORDS = {"幸福", "团圆", "和平", "胜利", "成功", "光明", "希望", "美满", "圆满", "新生", "曙光"};
-const std::set<std::string> BAD_ENDING_WORDS = {"死亡", "失败", "绝望", "结束", "毁灭", "牺牲", "悲剧", "消亡", "破碎", "分离", "不幸"};
 
-// 常见姓氏
-const std::unordered_set<std::string> COMMON_SURNAMES = {
-    "赵", "钱", "孙", "李", "周", "吴", "郑", "王", "冯", "陈", "褚", "卫", "蒋", "沈", "韩", "杨", "朱", "秦", "尤", "许", "何", "吕", "施", "张", "孔", "曹", "严", "华", "金", "魏", "陶", "姜", "戚", "谢", "邹", "喻", "柏", "水", "窦", "章", "云", "苏", "潘", "葛", "奚", "范", "彭", "郎", "鲁", "韦", "昌", "马", "苗", "凤", "花", "方", "俞", "任", "袁", "柳", "丰", "鲍", "史", "唐", "费", "廉", "岑", "薛", "雷", "贺", "倪", "汤", "滕", "殷", "罗", "毕", "郝", "邬", "安", "常", "乐", "于", "时", "傅", "皮", "卞", "齐", "康", "伍", "余", "元", "卜", "顾", "孟", "平", "黄", "和", "穆", "萧", "尹", "姚", "邵", "湛", "汪", "祁", "毛", "禹", "狄", "米", "贝", "明", "臧", "计", "伏", "成", "戴", "谈", "宋", "茅", "庞", "熊", "纪", "舒", "屈", "项", "祝", "董", "梁", "杜", "阮", "蓝", "闵", "席", "季", "麻", "强", "贾", "路", "娄", "危", "江", "童", "颜", "郭", "梅", "盛", "林", "刁", "钟", "徐", "丘", "骆", "高", "夏", "蔡", "田", "樊", "胡", "凌", "霍", "虞", "万", "支", "柯", "昝", "管", "卢", "莫", "经", "房", "裘", "缪", "干", "解", "应", "宗", "丁", "宣", "贲", "邓", "郁", "单", "杭", "洪", "包", "诸", "左", "石", "崔", "吉", "钮", "龚", "程", "嵇", "邢", "滑", "裴", "陆", "荣", "翁", "荀", "羊", "於", "惠", "甄", "麹", "家", "封", "芮", "羿", "储", "靳", "汲", "邴", "糜", "松", "井", "段", "富", "巫", "乌", "焦", "巴", "弓", "牧", "隗", "山", "谷", "车", "侯", "宓", "蓬", "全", "郗", "班", "仰", "秋", "仲", "伊", "宫", "宁", "仇", "栾", "暴", "甘", "钭", "厉", "戎", "祖", "武", "符", "刘", "景", "詹", "束", "龙", "叶", "幸", "司", "韶", "郜", "黎", "蓟", "薄", "印", "宿", "白", "怀", "蒲", "邰", "从", "鄂", "索", "咸", "籍", "赖", "卓", "蔺", "屠", "蒙", "池", "乔", "阴", "郁", "胥", "能", "苍", "双", "闻", "莘", "党", "翟", "谭", "贡", "劳", "逄", "姬", "申", "扶", "堵", "冉", "宰", "郦", "雍", "郤", "璩", "桑", "桂", "濮", "牛", "寿", "通", "边", "扈", "燕", "冀", "郏", "浦", "尚", "农", "温", "别", "庄", "晏", "柴", "瞿", "阎", "充", "慕", "连", "茹", "习", "宦", "艾", "鱼", "容", "向", "古", "易", "慎", "戈", "廖", "庾", "终", "暨", "居", "衡", "步", "都", "耿", "满", "弘", "匡", "国", "文", "寇", "广", "禄", "阙", "东", "欧", "殳", "沃", "利", "蔚", "越", "夔", "隆", "师", "巩", "厙", "聂", "晁", "勾", "敖", "融", "冷", "訾", "辛", "阚", "那", "简", "饶", "空", "曾", "毋", "沙", "乜", "养", "鞠", "须", "丰", "巢", "关", "蒯", "相", "查", "后", "荆", "红", "游", "竺", "权", "逯", "盖", "益", "桓", "公", "万俟", "司马", "上官", "欧阳", "夏侯", "诸葛", "闻人", "东方", "赫连", "皇甫", "尉迟", "公羊", "澹台", "公冶", "宗政", "濮阳", "淳于", "单于", "太叔", "申屠", "公孙", "仲孙", "轩辕", "令狐", "钟离", "宇文", "长孙", "慕容", "司徒", "司空"
-};
-
-// 动词词性集合
-const std::set<std::string> VERB_POS_TAGS = {
-    "v", "vd", "vn", "vshi", "vyou", "vf", "vx", "vi", "vl", "vg"
-};
-
-// 参数
-struct AnalysisConfig {
-    int minNameLength = 2;    // 最小名字长度
-    int maxNameLength = 4;     // 最大名字长度
-    int minNameScore = 15;    // 最低名字得分
-    int minNameOccurrence = 3; // 最小出现次数
-    double endingRatio = 2.0; // 结局判定比例
-    int minEndingCount = 5;    // 最小结局关键词数量
-};
-
-// 全局变量
+AppConfig appConfig;
 std::unordered_set<std::string> STOP_WORDS;
 std::unordered_set<std::string> NAME_FILTER;
-AnalysisConfig config;
+std::set<std::string> POSITIVE_WORDS;
+std::set<std::string> NEGATIVE_WORDS;
+std::set<std::string> GOOD_ENDING_WORDS;
+std::set<std::string> BAD_ENDING_WORDS;
+std::unordered_set<std::string> COMMON_SURNAMES;
+std::set<std::string> VERB_POS_TAGS;
+std::map<std::string, std::set<std::string>> GENRE_KEYWORDS;
 
-// 特殊符号正则表达式
 const static std::regex CH_PUNCT_REGEX(u8"[“”‘’，。？！；：、《》（）【】—…—·]");
 
-// 加载过滤器
-void loadFilter(const std::string& filePath, std::unordered_set<std::string>& filter) {
+// 加载词典
+void loadDictionary(const std::string& filePath, std::set<std::string>& container) {
     std::ifstream ifs(filePath);
     if (!ifs.is_open()) {
-        XLOG(ERROR) << "Error opening filter file: " << filePath;
+        std::cerr << "Error opening dictionary: " << filePath << std::endl;
         return;
     }
     std::string line;
     while (std::getline(ifs, line)) {
         if (!line.empty()) {
-            filter.insert(std::move(line));
+            container.insert(line);
         }
     }
+}
+
+// 加载词典到unordered_set
+void loadDictionary(const std::string& filePath, std::unordered_set<std::string>& container) {
+    std::ifstream ifs(filePath);
+    if (!ifs.is_open()) {
+        std::cerr << "Error opening dictionary: " << filePath << std::endl;
+        return;
+    }
+    std::string line;
+    while (std::getline(ifs, line)) {
+        if (!line.empty()) {
+            container.insert(line);
+        }
+    }
+}
+
+// 加载故事类型关键词
+void loadGenreKeywords(const std::string& dirPath) {
+    namespace fs = std::filesystem;
+    
+    try {
+        for (const auto& entry : fs::directory_iterator(dirPath)) {
+            if (entry.is_regular_file()) {
+                // 获取文件名作为类型名
+                std::string genre = entry.path().stem().string();
+                
+                // 加载关键词
+                std::set<std::string> keywords;
+                loadDictionary(entry.path().string(), keywords);
+                
+                GENRE_KEYWORDS[genre] = keywords;
+            }
+        }
+    } catch (const std::filesystem::filesystem_error& e) {
+        std::cerr << "Error loading genre keywords: " << e.what() << std::endl;
+    }
+}
+
+// 加载所有词典
+void loadAllDictionaries() {
+    // 加载停用词和名称过滤器
+    loadDictionary(appConfig.stopWordsPath, STOP_WORDS);
+    loadDictionary(appConfig.nameFilterPath, NAME_FILTER);
+    
+    // 加载情感分析关键词
+    loadDictionary(appConfig.positiveWordsPath, POSITIVE_WORDS);
+    loadDictionary(appConfig.negativeWordsPath, NEGATIVE_WORDS);
+    
+    // 加载结局关键词
+    loadDictionary(appConfig.goodEndingWordsPath, GOOD_ENDING_WORDS);
+    loadDictionary(appConfig.badEndingWordsPath, BAD_ENDING_WORDS);
+    
+    // 加载姓氏
+    loadDictionary(appConfig.surnamesPath, COMMON_SURNAMES);
+    
+    // 加载动词词性标签
+    loadDictionary(appConfig.verbTagsPath, VERB_POS_TAGS);
+    
+    // 加载故事类型关键词
+    loadGenreKeywords(appConfig.genreKeywordsDir);
+}
+
+// 解析配置文件
+bool parseConfig(const std::string& configPath) {
+    std::ifstream configFile(configPath);
+    if (!configFile.is_open()) {
+        std::cerr << "Error opening config file: " << configPath << std::endl;
+        return false;
+    }
+
+    std::string line;
+    std::string currentSection;
+    while (std::getline(configFile, line)) {
+        // 移除行首行尾空白
+        line.erase(0, line.find_first_not_of(" \t"));
+        line.erase(line.find_last_not_of(" \t") + 1);
+        
+        // 跳过空行和注释
+        if (line.empty() || line[0] == '#' || line[0] == ';') {
+            continue;
+        }
+        
+        // 处理节头
+        if (line[0] == '[' && line[line.size()-1] == ']') {
+            currentSection = line.substr(1, line.size()-2);
+            continue;
+        }
+        
+        // 分割键值对
+        size_t pos = line.find('=');
+        if (pos == std::string::npos) continue;
+        
+        std::string key = line.substr(0, pos);
+        std::string value = line.substr(pos + 1);
+        
+        // 移除键值对两端的空白
+        key.erase(0, key.find_first_not_of(" \t"));
+        key.erase(key.find_last_not_of(" \t") + 1);
+        value.erase(0, value.find_first_not_of(" \t"));
+        value.erase(value.find_last_not_of(" \t") + 1);
+        
+        // 处理不同节的配置
+        if (currentSection == "Dictionaries") {
+            if (key == "jieba_dict") appConfig.jiebaDictPath = value;
+            else if (key == "hmm_model") appConfig.hmmModelPath = value;
+            else if (key == "user_dict") appConfig.userDictPath = value;
+            else if (key == "idf") appConfig.idfPath = value;
+            else if (key == "stop_words") appConfig.stopWordsPath = value;
+            else if (key == "name_filter") appConfig.nameFilterPath = value;
+            else if (key == "positive_words") appConfig.positiveWordsPath = value;
+            else if (key == "negative_words") appConfig.negativeWordsPath = value;
+            else if (key == "good_ending_words") appConfig.goodEndingWordsPath = value;
+            else if (key == "bad_ending_words") appConfig.badEndingWordsPath = value;
+            else if (key == "surnames") appConfig.surnamesPath = value;
+            else if (key == "verb_tags") appConfig.verbTagsPath = value;
+            else if (key == "genre_keywords_dir") appConfig.genreKeywordsDir = value;
+        }
+        else if (currentSection == "AnalysisConfig") {
+            if (key == "min_name_length") appConfig.analysisConfig.minNameLength = std::stoi(value);
+            else if (key == "max_name_length") appConfig.analysisConfig.maxNameLength = std::stoi(value);
+            else if (key == "min_name_score") appConfig.analysisConfig.minNameScore = std::stoi(value);
+            else if (key == "min_name_occurrence") appConfig.analysisConfig.minNameOccurrence = std::stoi(value);
+            else if (key == "ending_ratio") appConfig.analysisConfig.endingRatio = std::stod(value);
+            else if (key == "min_ending_count") appConfig.analysisConfig.minEndingCount = std::stoi(value);
+        }
+    }
+    
+    return true;
 }
 
 // 检查是否是停用词
@@ -105,6 +231,8 @@ void analyzeCharacters(const std::vector<Token>& tokens,
     // 候选人物
     std::unordered_map<std::string, int> candidates;
     std::unordered_map<std::string, int> freqMap; // 频率统计
+    
+    const auto& config = appConfig.analysisConfig;
     
     // 1. 基础筛选和频率统计
     for (const auto& token : tokens) {
@@ -227,6 +355,7 @@ void combinedAnalysis(const std::vector<std::string>& words,
     }
 
     // 预测结局
+    const auto& config = appConfig.analysisConfig;
     if (goodEnding > badEnding * config.endingRatio && goodEnding > config.minEndingCount) {
         ending = "美好结局";
     } else if (badEnding > goodEnding * config.endingRatio && badEnding > config.minEndingCount) {
@@ -238,45 +367,78 @@ void combinedAnalysis(const std::vector<std::string>& words,
     }
 }
 
-// 加载词典
-void loadAllDictionaries() {
-    auto load = [](const std::string& path, auto& container) {
-        std::ifstream ifs(path);
-        if (!ifs) {
-            std::cerr << "Error opening dictionary: " << path << std::endl;
-            return;
-        }
-        std::string line;
-        while (std::getline(ifs, line)) {
-            if (!line.empty()) {
-                container.insert(line);
-            }
-        }
-    };
-    
-    load("../dict/stop_words.utf8", STOP_WORDS);
-    load("../dict/name_filter.utf8", NAME_FILTER);
-}
-
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <novel_file> [output_file]" << std::endl;
+    // 默认配置文件路径
+    std::string configPath = "config.ini";
+    
+    if (argc > 1 && std::string(argv[1]) == "-c" && argc >= 3) {
+        configPath = argv[2];
+        for (int i = 2; i < argc - 1; i++) {
+            argv[i] = argv[i+1];
+        }
+        argc--;
+    }
+
+    if (!std::filesystem::exists(configPath)) {
+        std::cerr << "Config file not found: " << configPath << std::endl;
+        std::cout << "Creating default config file..." << std::endl;
+        std::ofstream configFile(configPath);
+        if (configFile.is_open()) {
+            configFile << "[Dictionaries]" << std::endl;
+            configFile << "jieba_dict = ./dict/jieba/jieba.dict.utf8" << std::endl;
+            configFile << "hmm_model = ./dict/jieba/hmm_model.utf8" << std::endl;
+            configFile << "user_dict = ./dict/jieba/user.dict.utf8" << std::endl;
+            configFile << "idf = ./dict/jieba/idf.utf8" << std::endl;
+            configFile << "stop_words = ./dict/jieba/stop_words.utf8" << std::endl;
+            configFile << "name_filter = ./dict/name_filter.utf8" << std::endl;
+            configFile << "positive_words = ./dict/positive_words.utf8" << std::endl;
+            configFile << "negative_words = ./dict/negative_words.utf8" << std::endl;
+            configFile << "good_ending_words = ./dict/good_ending_words.utf8" << std::endl;
+            configFile << "bad_ending_words = ./dict/bad_ending_words.utf8" << std::endl;
+            configFile << "surnames = ./dict/surnames.utf8" << std::endl;
+            configFile << "verb_tags = ./dict/verb_tags.utf8" << std::endl;
+            configFile << "genre_keywords_dir = ./dict/genre_keywords/" << std::endl;
+            configFile << std::endl;
+            configFile << "[AnalysisConfig]" << std::endl;
+            configFile << "min_name_length = 2" << std::endl;
+            configFile << "max_name_length = 4" << std::endl;
+            configFile << "min_name_score = 15" << std::endl;
+            configFile << "min_name_occurrence = 3" << std::endl;
+            configFile << "ending_ratio = 2.0" << std::endl;
+            configFile << "min_ending_count = 5" << std::endl;
+            configFile.close();
+            std::cout << "Default config file created at: " << configPath << std::endl;
+        } else {
+            std::cerr << "Error creating default config file: " << configPath << std::endl;
+            return 1;
+        }
+    
         return 1;
     }
 
-    // 加载词典
+    if (!parseConfig(configPath)) {
+        std::cerr << "Using default configuration due to config file error" << std::endl;
+    }
+
     loadAllDictionaries();
 
-    cppjieba::Jieba jieba("../dict/jieba.dict.utf8",
-                          "../dict/hmm_model.utf8",
-                          "../dict/user.dict.utf8",
-                          "../dict/idf.utf8",
-                          "../dict/stop_words.utf8");
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " [-c config_file] <novel_file> [output_file]" << std::endl;
+        return 1;
+    }
 
-    // 读取小说
-    std::ifstream file(argv[1]);
+    std::string novelFile = argv[1];
+    std::string outputFile = (argc > 2) ? argv[2] : "";
+
+    cppjieba::Jieba jieba(appConfig.jiebaDictPath,
+                          appConfig.hmmModelPath,
+                          appConfig.userDictPath,
+                          appConfig.idfPath,
+                          appConfig.stopWordsPath);
+
+    std::ifstream file(novelFile);
     if (!file) {
-        std::cerr << "Error opening file: " << argv[1] << std::endl;
+        std::cerr << "Error opening file: " << novelFile << std::endl;
         return 1;
     }
 
@@ -290,14 +452,14 @@ int main(int argc, char** argv) {
     
     // 转换为Token
     std::vector<Token> tokens;
-    tokens.reserve(jieba_tokens.size()); // 预分配内存
+    tokens.reserve(jieba_tokens.size());
     for (const auto& token : jieba_tokens) {
         tokens.push_back({token.first, token.second});
     }
     
     // 提取，过滤词语
     std::vector<std::string> filteredWords;
-    filteredWords.reserve(tokens.size()); // 预分配内存
+    filteredWords.reserve(tokens.size());
     
     for (const auto& token : tokens) {
         const auto& word = token.word;
@@ -345,12 +507,11 @@ int main(int argc, char** argv) {
     std::string genre, ending;
     combinedAnalysis(filteredWords, sentiment, genre, ending);
 
-    // 输出
     std::ostream* out = &std::cout;
     std::ofstream outFile;
 
-    if (argc > 2) {
-        outFile.open(argv[2]);
+    if (!outputFile.empty()) {
+        outFile.open(outputFile);
         if (outFile.is_open()) {
             out = &outFile;
         }
